@@ -20,15 +20,14 @@
 #define STEPPER_STEPS_PER_REV     3072                //Defines the number of pulses that is required for the stepper to rotate 360 degrees
 #define FULLSTEP 4
 
-#define CLOSED_UP_POSITION 0
-#define OPEN_POSITION 2100
-#define CLOSED_DOWN_POSITION 4200
-
-
 #define STEPPER_IN1          D5
 #define STEPPER_IN2          D6
 #define STEPPER_IN3          D7
 #define STEPPER_IN4          D8
+
+#define MIN_POSITION 0
+#define OPEN_POSITION 2100
+#define MAX_POSITION 4200
  
 /*****************  END USER CONFIG SECTION *********************************/
 
@@ -49,6 +48,9 @@ char mqtt_user[40];
 char mqtt_pass[40];
 char mqtt_client_name[40] = MQTT_CLIENT_ROOT_NAME;
 
+char min_position[6] = MIN_POSITION;
+char open_position[6] = OPEN_POSITION;
+char max_position[6] = MAX_POSITION;
 
 //flag for saving data
 bool shouldSaveConfig = false;
@@ -95,8 +97,9 @@ void setupSpiffs(){
         strcpy(mqtt_user, json["mqtt_user"]);
         strcpy(mqtt_pass, json["mqtt_pass"]);
         strcpy(mqtt_client_name + ROOTLEN, json["mqtt_client_name"]);
-        Serial.println(mqtt_client_name + ROOTLEN);
-        Serial.println(mqtt_client_name);
+        strcpy(min_position, json["min_position"]);
+        strcpy(open_position, json["open_position"]);
+        strcpy(max_position, json["max_position"]);
 
         // Preload publishing buffer
         strncpy(tmpPublish, mqtt_client_name, sizeof(tmpPublish));
@@ -119,7 +122,7 @@ void reconnect(bool boot)
       if (client.connect(mqtt_client_name, mqtt_user, mqtt_pass)) 
       {
         Serial.println("connected");
-        strncpy(tmpPublish + strlen(mqtt_client_name), "/checkIn", 50); 
+        strcpy(tmpPublish + strlen(mqtt_client_name), "/checkIn"); 
         if(boot == false)
         {
           client.publish(tmpPublish, "Reconnected"); 
@@ -166,13 +169,13 @@ void callback(char* topic, byte* payload, unsigned int length)
     if (newPayload == "OPEN")
     {
       setZero();
-      stepper.moveTo(OPEN_POSITION);
+      stepper.moveTo(open_position);
       command_active = true;
     }
     else if (newPayload == "CLOSE")
     {   
       setZero();
-      stepper.moveTo(CLOSED_UP_POSITION);
+      stepper.moveTo(min_position);
       command_active = true;
     }
     else if (newPayload == "STOP")
@@ -212,7 +215,7 @@ void checkIn()
 
 void setZero()
 {
-  stepper.moveTo(-CLOSED_DOWN_POSITION);
+  stepper.move(-max_position);
   stepper.runToPosition();
   stepper.setCurrentPosition(0);
 }
@@ -233,6 +236,9 @@ void setup() {
   WiFiManagerParameter custom_mqtt_user("user", "mqtt user", "", 32);
   WiFiManagerParameter custom_mqtt_pass("pass", "mqtt pass", "", 32);
   WiFiManagerParameter custom_mqtt_client_name("client_name", "mqtt client name", mqtt_client_name + ROOTLEN, 32);
+  WiFiManagerParameter custom_min_position("min", "min position", min_position, 6);
+  WiFiManagerParameter custom_open_position("open", "open position", open_position, 6);
+  WiFiManagerParameter custom_max_position("max", "max position", max_position, 6);
 
   // MQTT params
   wm.addParameter(&custom_mqtt_server);
@@ -241,7 +247,12 @@ void setup() {
   wm.addParameter(&custom_mqtt_pass);
   wm.addParameter(&custom_mqtt_client_name);
 
-  wm.autoConnect("AutoConnectAP");
+  // Motor position params
+  wm.addParameter(&custom_min_position);
+  wm.addParameter(&custom_open_position);
+  wm.addParameter(&custom_max_position);
+
+  wm.autoConnect("BlindsMCU");
 
   //read updated parameters
   strcpy(mqtt_server, custom_mqtt_server.getValue());
@@ -251,6 +262,10 @@ void setup() {
   strcpy(mqtt_client_name + ROOTLEN, custom_mqtt_client_name.getValue());
   // Preload publishing buffer
   strncpy(tmpPublish, mqtt_client_name, sizeof(tmpPublish));
+  // postion params
+  strcpy(min_position, custom_min_position.getValue());
+  strcpy(open_position, custom_open_position.getValue());
+  strcpy(max_position, custom_max_position.getValue());
 
   //save the custom parameters to FS
   if (shouldSaveConfig) {
@@ -261,7 +276,9 @@ void setup() {
     json["mqtt_user"] = mqtt_user;
     json["mqtt_pass"] = mqtt_pass;
     json["mqtt_client_name"] = mqtt_client_name + ROOTLEN;
-
+    json["min_postiion"] = min_postiion;
+    json["open_postiion"] = open_postiion;
+    json["max_postiion"] = max_postiion;
 
     File configFile = SPIFFS.open("/config.json", "w");
     if (!configFile) {
